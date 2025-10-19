@@ -2,254 +2,355 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
     <title>中药识别 - 枸杞与菊花</title>
+    <!-- 外部资源 -->
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.14.0/dist/tf.min.js"></script>
+    
+    <!-- Tailwind 自定义配置 -->
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#16a34a', // 中药绿
+                        secondary: '#b45309', // 琥珀色
+                        neutral: '#f3f4f6',
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'system-ui', 'sans-serif'],
+                    },
+                }
+            }
+        }
+    </script>
+    
+    <style type="text/tailwindcss">
+        @layer utilities {
+            .content-auto {
+                content-visibility: auto;
+            }
+            .transition-all-300 {
+                transition: all 300ms ease-in-out;
+            }
+            .shadow-custom {
+                box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+            }
+        }
+    </style>
 </head>
-<body class="bg-gray-50 min-h-screen">
+<body class="bg-gray-50 min-h-screen pb-20">
+    <!-- 头部导航 -->
     <header class="bg-white shadow-md fixed top-0 left-0 right-0 z-50">
         <div class="container mx-auto px-4 py-3 flex justify-between items-center">
             <div class="flex items-center space-x-2">
-                <i class="fa fa-leaf text-green-500 text-2xl"></i>
-                <h1 class="text-xl font-bold">中药识别</h1>
+                <i class="fa fa-leaf text-primary text-2xl"></i>
+                <h1 class="text-xl font-bold text-gray-800">中药识别</h1>
             </div>
-            <div id="status-indicator" class="text-sm text-gray-500">
+            <div id="status-indicator" class="text-sm text-gray-500 flex items-center">
                 <i class="fa fa-circle-o-notch fa-spin mr-1"></i>
                 <span>准备中...</span>
             </div>
         </div>
     </header>
 
-    <main class="container mx-auto px-4 pt-20 pb-24">
-        <div class="bg-blue-50 border-l-4 border-blue-400 p-4 mb-6 text-sm">
-            <div class="flex">
-                <div class="flex-shrink-0">
+    <!-- 主内容区 -->
+    <main class="container mx-auto px-4 pt-20 pb-16">
+        <!-- 提示信息 -->
+        <div class="bg-blue-50 border-l-4 border-blue-400 p-4 mb-6 text-sm rounded-r">
+            <div class="flex items-start">
+                <div class="flex-shrink-0 mt-0.5">
                     <i class="fa fa-info-circle text-blue-400"></i>
                 </div>
                 <div class="ml-3">
-                    <p class="text-blue-700">确保model.json和weights.bin文件匹配且未损坏</p>
+                    <p class="text-blue-700">
+                        <strong>使用说明：</strong>支持JPG/PNG格式图片，建议上传清晰的枸杞或菊花特写照片
+                    </p>
                 </div>
             </div>
         </div>
         
         <!-- 上传区域 -->
-        <div id="upload-area" class="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center mb-6 cursor-pointer transition-all hover:border-green-500 hover:bg-green-50">
+        <div id="upload-area" class="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center mb-6 cursor-pointer transition-all-300 hover:border-primary hover:bg-green-50">
             <input type="file" id="image-upload" accept="image/*" class="hidden" />
             <div class="flex flex-col items-center">
                 <i class="fa fa-cloud-upload text-5xl text-gray-400 mb-4"></i>
                 <h3 class="text-lg font-medium text-gray-700 mb-2">上传药材图片</h3>
-                <p class="text-sm text-gray-500 mb-4">点击或拖拽图片到此处</p>
-                <button id="browse-btn" class="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-lg text-sm transition-all">
-                    选择图片
+                <p class="text-sm text-gray-500 mb-4 max-w-xs">点击或拖拽图片到此处（支持枸杞、菊花识别）</p>
+                <button id="browse-btn" class="bg-primary hover:bg-primary/90 text-white px-5 py-2 rounded-lg text-sm transition-all-300 shadow-sm">
+                    <i class="fa fa-image mr-1"></i> 选择图片
                 </button>
             </div>
         </div>
         
-        <!-- 预览和结果区域 -->
+        <!-- 预览区域 -->
         <div id="preview-container" class="hidden mb-6">
-            <div class="bg-white rounded-xl shadow p-4">
-                <h3 class="text-center text-gray-700 mb-3">图片预览</h3>
-                <div class="flex justify-center">
-                    <img id="preview-image" class="max-w-full max-h-64 object-contain rounded-lg" src="" alt="预览图片" />
+            <div class="bg-white rounded-xl shadow-custom p-4">
+                <h3 class="text-center text-gray-700 mb-3 font-medium">图片预览</h3>
+                <div class="flex justify-center p-4 bg-gray-50 rounded-lg mb-4">
+                    <img id="preview-image" class="max-w-full max-h-64 object-contain rounded" src="assets/placeholder.jpg" alt="预览图片" />
                 </div>
-                <div class="flex justify-center mt-4">
-                    <button id="analyze-btn" class="bg-amber-700 hover:bg-amber-800 text-white px-6 py-2 rounded-lg text-sm transition-all" disabled>
+                <div class="flex justify-center">
+                    <button id="analyze-btn" class="bg-secondary hover:bg-secondary/90 text-white px-6 py-2 rounded-lg text-sm transition-all-300 shadow-sm disabled:opacity-70 disabled:cursor-not-allowed" disabled>
                         <i class="fa fa-search mr-1"></i> 请等待模型加载
                     </button>
                 </div>
             </div>
         </div>
         
-        <div id="result-container" class="bg-white rounded-xl shadow p-6 mb-6 hidden">
-            <h2 class="text-lg font-semibold mb-4 text-center">识别结果</h2>
+        <!-- 结果区域 -->
+        <div id="result-container" class="bg-white rounded-xl shadow-custom p-6 mb-6 hidden">
+            <h2 class="text-lg font-semibold mb-4 text-center text-gray-800">识别结果</h2>
             <div class="flex flex-col items-center">
-                <div id="result-image" class="w-48 h-48 rounded-lg overflow-hidden mb-4 border-2 border-gray-200">
+                <div id="result-image" class="w-48 h-48 rounded-lg overflow-hidden mb-4 border-2 border-gray-200 bg-gray-50 flex items-center justify-center">
+                    <img src="assets/placeholder.jpg" class="w-full h-full object-cover" alt="识别图片" />
                 </div>
-                <div id="prediction-result" class="text-center p-4 rounded-lg w-full max-w-xs">
+                <div id="prediction-result" class="text-center p-4 rounded-lg w-full max-w-xs bg-gray-50">
+                    <!-- 识别结果将在这里显示 -->
                 </div>
             </div>
         </div>
         
-        <div id="herb-info" class="bg-white rounded-xl shadow p-5 mb-6 hidden">
-            <h2 id="herb-name" class="text-lg font-semibold mb-3"></h2>
-            <div id="herb-description" class="text-gray-600 text-sm">
+        <!-- 药材信息区域 -->
+        <div id="herb-info" class="bg-white rounded-xl shadow-custom p-5 mb-6 hidden">
+            <h2 id="herb-name" class="text-lg font-semibold mb-3 text-gray-800 border-b pb-2"></h2>
+            <div id="herb-description" class="text-gray-600 text-sm space-y-3">
+                <!-- 药材信息将在这里显示 -->
+            </div>
+        </div>
+        
+        <!-- 加载失败备用区域 -->
+        <div id="fallback-message" class="hidden bg-red-50 border-l-4 border-red-400 p-4 mb-6 rounded-r">
+            <div class="flex items-start">
+                <div class="flex-shrink-0 mt-0.5">
+                    <i class="fa fa-exclamation-triangle text-red-400"></i>
+                </div>
+                <div class="ml-3">
+                    <p class="text-red-700 text-sm">
+                        <strong>模型加载失败：</strong>请检查网络连接或<a href="https://github.com/tensorflow/tfjs" target="_blank" class="text-blue-600 underline">查看TensorFlow.js文档</a>
+                    </p>
+                </div>
             </div>
         </div>
     </main>
 
+    <!-- 页脚 -->
     <footer class="bg-white border-t border-gray-200 fixed bottom-0 left-0 right-0 py-3">
         <div class="container mx-auto px-4 text-center text-sm text-gray-500">
-            <p>中药识别小程序</p>
+            <p>中药识别系统 | <a href="https://github.com/你的用户名/你的仓库名" target="_blank" class="text-primary hover:underline">GitHub</a></p>
         </div>
     </footer>
 
+    <!-- JavaScript 逻辑 -->
     <script>
-        // 检查TensorFlow是否加载
-        function checkTFLoaded() {
-            if (typeof tf === 'undefined') {
-                statusIndicator.innerHTML = `
-                    <i class="fa fa-exclamation-triangle text-red-500 mr-1"></i>
-                    <span class="text-red-500">TensorFlow.js库加载失败，请检查网络</span>
-                `;
-                return false;
-            }
-            return true;
-        }
-
-        // 模型路径
-        const MODEL_PATH = 'model.json';
-        const WEIGHTS_PATH = 'weights.bin';
-        
-        // DOM元素
+        // DOM元素获取
         const statusIndicator = document.getElementById('status-indicator');
         const imageUpload = document.getElementById('image-upload');
         const previewContainer = document.getElementById('preview-container');
         const previewImage = document.getElementById('preview-image');
         const analyzeBtn = document.getElementById('analyze-btn');
         const resultContainer = document.getElementById('result-container');
-        const resultImage = document.getElementById('result-image');
+        const resultImage = document.getElementById('result-image').querySelector('img');
         const predictionResult = document.getElementById('prediction-result');
         const herbInfo = document.getElementById('herb-info');
         const herbName = document.getElementById('herb-name');
         const herbDescription = document.getElementById('herb-description');
+        const uploadArea = document.getElementById('upload-area');
+        const fallbackMessage = document.getElementById('fallback-message');
         
-        // 变量初始化
+        // 全局变量
         let model;
         const labels = ['枸杞', '菊花'];
         let currentImage = null;
+        const MODEL_PATH = 'model/model.json'; // GitHub Pages路径配置
         
-        // 中药信息
+        // 中药信息数据库
         const herbData = {
-            '枸杞': { description: '枸杞是一种常见的中药材，具有滋补肝肾、益精明目的功效。' },
-            '菊花': { description: '菊花是常用中药材，具有散风清热、平肝明目的功效。' }
+            '枸杞': {
+                name: '枸杞 (Gǒu Qǐ)',
+                description: `
+                    <p><strong>基本信息：</strong>茄科植物宁夏枸杞的干燥成熟果实，又称枸杞子、红耳坠。</p>
+                    <p><strong>性味归经：</strong>味甘，性平。归肝、肾经。</p>
+                    <p><strong>主要功效：</strong>滋补肝肾，益精明目。用于虚劳精亏，腰膝酸痛，眩晕耳鸣，内热消渴，血虚萎黄，目昏不明。</p>
+                    <p><strong>使用提示：</strong>外邪实热，脾虚有湿及泄泻者忌服。</p>
+                `
+            },
+            '菊花': {
+                name: '菊花 (Jú Huā)',
+                description: `
+                    <p><strong>基本信息：</strong>菊科植物菊的干燥头状花序，常见品种有杭菊、滁菊、亳菊、怀菊。</p>
+                    <p><strong>性味归经：</strong>味甘、苦，性微寒。归肺、肝经。</p>
+                    <p><strong>主要功效：</strong>散风清热，平肝明目，清热解毒。用于风热感冒，头痛眩晕，目赤肿痛，眼目昏花，疮痈肿毒。</p>
+                    <p><strong>使用提示：</strong>气虚胃寒，食少泄泻者慎用。</p>
+                `
+            }
         };
         
         // 初始化应用
-        function initApp() {
-            if (!checkTFLoaded()) return;
-            
-            statusIndicator.innerHTML = `<i class="fa fa-info-circle text-blue-500 mr-1"></i><span>已加载TensorFlow.js v${tf.version.tfjs}</span>`;
-            
-            // 先验证权重文件
-            verifyWeightsFile().then(valid => {
-                if (valid) {
-                    loadModel();
-                } else {
-                    statusIndicator.innerHTML = `
-                        <i class="fa fa-exclamation-triangle text-red-500 mr-1"></i>
-                        <span class="text-red-500">权重文件损坏，请重新导出模型</span>
-                    `;
-                }
-            });
-        }
-        
-        // 验证权重文件
-        async function verifyWeightsFile() {
+        async function initApp() {
             try {
-                statusIndicator.innerHTML = '<i class="fa fa-circle-o-notch fa-spin mr-1"></i><span>验证权重文件...</span>';
-                
-                const response = await fetch(WEIGHTS_PATH);
-                if (!response.ok) throw new Error('权重文件不存在');
-                
-                const arrayBuffer = await response.arrayBuffer();
-                // Float32Array的字节长度必须是4的倍数
-                if (arrayBuffer.byteLength % 4 !== 0) {
-                    console.error(`权重文件字节长度错误: ${arrayBuffer.byteLength}，必须是4的倍数`);
-                    return false;
+                // 检查TensorFlow.js加载状态
+                if (typeof tf === 'undefined') {
+                    throw new Error('TensorFlow.js库加载失败');
                 }
                 
-                return true;
+                // 显示版本信息
+                statusIndicator.innerHTML = `
+                    <i class="fa fa-info-circle text-blue-500 mr-1"></i>
+                    <span>已加载TensorFlow.js v${tf.version.tfjs}</span>
+                `;
+                
+                // 加载模型
+                await loadModel();
+                
+                // 初始化事件监听
+                initEventListeners();
+                
             } catch (error) {
-                console.error('权重文件验证失败:', error);
-                return false;
+                console.error('初始化失败:', error);
+                showError(`初始化失败: ${error.message}`);
+                fallbackMessage.classList.remove('hidden');
             }
         }
         
         // 加载模型
         async function loadModel() {
             try {
-                statusIndicator.innerHTML = '<i class="fa fa-circle-o-notch fa-spin mr-1"></i><span>加载模型中...</span>';
+                statusIndicator.innerHTML = `
+                    <i class="fa fa-circle-o-notch fa-spin mr-1"></i>
+                    <span>加载识别模型中...</span>
+                `;
                 
-                if (window.location.protocol === 'file:') {
-                    throw new Error('请使用本地服务器运行（http://）');
+                // 检查协议（GitHub Pages使用HTTPS）
+                if (window.location.protocol !== 'https:' && window.location.hostname !== 'localhost') {
+                    throw new Error('请使用HTTPS协议访问');
                 }
                 
-                // 使用自定义加载器确保权重文件正确加载
-                const model = await tf.loadLayersModel(tf.io.browserHTTPRequest(MODEL_PATH, {
-                    onProgress: (progress) => {
-                        statusIndicator.innerHTML = `<i class="fa fa-circle-o-notch fa-spin mr-1"></i><span>加载中: ${Math.round(progress * 100)}%</span>`;
-                    }
-                }));
+                // 加载模型
+                model = await tf.loadLayersModel(MODEL_PATH);
                 
+                // 验证模型
                 if (!model || typeof model.predict !== 'function') {
                     throw new Error('模型文件损坏或不完整');
                 }
                 
-                statusIndicator.innerHTML = '<i class="fa fa-check text-green-500 mr-1"></i><span>模型加载完成</span>';
+                // 模型加载成功
+                statusIndicator.innerHTML = `
+                    <i class="fa fa-check text-green-500 mr-1"></i>
+                    <span>模型加载完成， ready!</span>
+                `;
                 analyzeBtn.disabled = false;
                 analyzeBtn.innerHTML = '<i class="fa fa-search mr-1"></i> 开始识别';
-                return model;
+                
+                return true;
+                
             } catch (error) {
                 console.error('模型加载失败:', error);
-                statusIndicator.innerHTML = `
-                    <i class="fa fa-exclamation-triangle text-red-500 mr-1"></i>
-                    <span class="text-red-500 text-xs">${error.message}</span>
-                `;
-                return null;
+                showError(`模型加载失败: ${error.message}`);
+                
+                // 提供备用方案提示
+                if (error.message.includes('404')) {
+                    statusIndicator.innerHTML += `
+                        <br><span class="text-xs mt-1 block">请确认model文件夹已正确上传到GitHub仓库</span>
+                    `;
+                }
+                
+                return false;
             }
         }
         
-        // 处理图片上传和分析（保持不变）
+        // 处理图片上传
         function handleImageUpload(event) {
             const file = event.target.files[0];
             if (!file) return;
             
-            if (!file.type.match('image.*')) {
-                alert('请上传图片文件（JPG/PNG等）');
+            // 验证文件类型
+            const fileTypes = ['image/jpeg', 'image/png', 'image/jpg'];
+            if (!fileTypes.includes(file.type)) {
+                showError('请上传JPG或PNG格式的图片');
                 return;
             }
             
+            // 验证文件大小（不超过5MB）
+            if (file.size > 5 * 1024 * 1024) {
+                showError('图片大小不能超过5MB，请压缩后上传');
+                return;
+            }
+            
+            // 读取并预览图片
             const reader = new FileReader();
             reader.onload = function(e) {
                 currentImage = e.target.result;
                 previewImage.src = currentImage;
                 previewContainer.classList.remove('hidden');
+                
+                // 隐藏之前的结果
+                resultContainer.classList.add('hidden');
+                herbInfo.classList.add('hidden');
             }
             reader.readAsDataURL(file);
         }
         
+        // 分析图片（识别药材）
         async function analyzeImage() {
             if (!model) {
-                alert('模型未加载成功，请先解决模型加载问题');
+                showError('模型未加载成功，请刷新页面重试');
                 return;
             }
             if (!currentImage) return;
             
-            statusIndicator.innerHTML = '<i class="fa fa-circle-o-notch fa-spin mr-1"></i><span>识别中...</span>';
+            statusIndicator.innerHTML = `
+                <i class="fa fa-circle-o-notch fa-spin mr-1"></i>
+                <span>正在识别，请稍候...</span>
+            `;
+            analyzeBtn.disabled = true;
+            analyzeBtn.innerHTML = '<i class="fa fa-spinner fa-spin mr-1"></i> 识别中';
             
-            const img = new Image();
-            img.src = currentImage;
-            
-            img.onload = async function() {
-                const canvas = document.createElement('canvas');
-                const ctx = canvas.getContext('2d');
-                canvas.width = 224;
-                canvas.height = 224;
-                ctx.drawImage(img, 0, 0, 224, 224);
+            try {
+                // 创建图片对象
+                const img = new Image();
+                img.src = currentImage;
+                img.crossOrigin = 'anonymous';
                 
-                try {
-                    let tensor = tf.browser.fromPixels(canvas)
-                        .resizeBilinear([224, 224])
-                        .div(255.0)
-                        .expandDims(0);
+                // 图片加载完成后处理
+                img.onload = async function() {
+                    // 创建画布并绘制图片
+                    const canvas = document.createElement('canvas');
+                    const ctx = canvas.getContext('2d');
+                    canvas.width = 224;
+                    canvas.height = 224;
                     
+                    // 保持图片比例并居中绘制
+                    const aspectRatio = img.width / img.height;
+                    let drawWidth = 224;
+                    let drawHeight = 224;
+                    
+                    if (aspectRatio > 1) {
+                        drawHeight = 224 / aspectRatio;
+                    } else {
+                        drawWidth = 224 * aspectRatio;
+                    }
+                    
+                    const offsetX = (224 - drawWidth) / 2;
+                    const offsetY = (224 - drawHeight) / 2;
+                    ctx.drawImage(img, offsetX, offsetY, drawWidth, drawHeight);
+                    
+                    // 预处理图像数据
+                    let tensor = tf.browser.fromPixels(canvas)
+                        .resizeBilinear([224, 224]) // 调整尺寸
+                        .div(255.0) // 归一化到0-1
+                        .expandDims(0); // 增加批次维度
+                    
+                    // 模型预测
                     const predictions = model.predict(tensor);
                     const scores = await predictions.data();
                     
+                    // 处理预测结果
                     let maxScore = -1;
                     let predictedClass = -1;
+                    
                     for (let i = 0; i < scores.length; i++) {
                         if (scores[i] > maxScore) {
                             maxScore = scores[i];
@@ -257,60 +358,136 @@
                         }
                     }
                     
+                    // 计算可信度
                     const confidence = Math.round(maxScore * 100);
                     const herb = labels[predictedClass];
                     
-                    resultImage.innerHTML = `<img src="${currentImage}" class="w-full h-full object-cover" alt="识别的药材">`;
-                    predictionResult.innerHTML = `
-                        <div class="text-xl font-bold mb-1 ${confidence > 70 ? 'text-green-600' : 'text-orange-600'}">
-                            ${herb}
-                        </div>
-                        <div class="text-sm text-gray-500">
-                            可信度: ${confidence}%
-                        </div>
-                    `;
+                    // 显示结果
+                    displayResults(herb, confidence);
                     
-                    herbInfo.classList.remove('hidden');
-                    herbName.textContent = herb + ' 信息';
-                    herbDescription.textContent = herbData[herb].description;
-                    resultContainer.classList.remove('hidden');
-                    statusIndicator.innerHTML = '<i class="fa fa-check text-green-500 mr-1"></i><span>识别完成</span>';
-                    
-                } catch (error) {
-                    console.error('识别失败:', error);
-                    statusIndicator.innerHTML = '<i class="fa fa-exclamation-triangle text-yellow-500 mr-1"></i><span>识别失败，请重试</span>';
-                } finally {
+                    // 释放Tensor内存
+                    tf.dispose(tensor);
+                    tf.dispose(predictions);
                     tf.disposeVariables();
-                }
-            };
+                    
+                    // 更新状态
+                    statusIndicator.innerHTML = `
+                        <i class="fa fa-check text-green-500 mr-1"></i>
+                        <span>识别完成</span>
+                    `;
+                    analyzeBtn.disabled = false;
+                    analyzeBtn.innerHTML = '<i class="fa fa-search mr-1"></i> 重新识别';
+                };
+                
+                // 图片加载失败处理
+                img.onerror = function() {
+                    throw new Error('图片加载失败，请重新上传');
+                };
+                
+            } catch (error) {
+                console.error('识别过程出错:', error);
+                showError(`识别失败: ${error.message}`);
+                
+                // 恢复按钮状态
+                analyzeBtn.disabled = false;
+                analyzeBtn.innerHTML = '<i class="fa fa-search mr-1"></i> 重试识别';
+            }
         }
         
-        // 事件监听
-        document.getElementById('browse-btn').addEventListener('click', () => imageUpload.click());
-        imageUpload.addEventListener('change', handleImageUpload);
-        document.getElementById('upload-area').addEventListener('click', () => imageUpload.click());
-        analyzeBtn.addEventListener('click', analyzeImage);
-        
-        // 拖放功能
-        const uploadArea = document.getElementById('upload-area');
-        uploadArea.addEventListener('dragover', (e) => {
-            e.preventDefault();
-            uploadArea.classList.add('border-green-500', 'bg-green-50');
-        });
-        uploadArea.addEventListener('dragleave', () => {
-            uploadArea.classList.remove('border-green-500', 'bg-green-50');
-        });
-        uploadArea.addEventListener('drop', (e) => {
-            e.preventDefault();
-            uploadArea.classList.remove('border-green-500', 'bg-green-50');
-            if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-                imageUpload.files = e.dataTransfer.files;
-                handleImageUpload({ target: imageUpload });
+        // 显示识别结果
+        function displayResults(herb, confidence) {
+            // 更新结果图片
+            resultImage.src = currentImage;
+            
+            // 生成结果HTML
+            let confidenceClass = 'text-green-600';
+            let confidenceText = '可信度高';
+            
+            if (confidence < 50) {
+                confidenceClass = 'text-red-600';
+                confidenceText = '可信度低，请上传更清晰的图片';
+            } else if (confidence < 70) {
+                confidenceClass = 'text-orange-600';
+                confidenceText = '可信度中等';
             }
-        });
+            
+            predictionResult.innerHTML = `
+                <div class="text-xl font-bold mb-1 ${confidenceClass}">
+                    ${herb}
+                </div>
+                <div class="text-sm text-gray-500 mb-2">
+                    可信度: ${confidence}% (${confidenceText})
+                </div>
+                ${confidence < 50 ? `
+                    <div class="text-xs text-yellow-600 bg-yellow-50 p-2 rounded">
+                        <i class="fa fa-lightbulb-o mr-1"></i> 提示：请拍摄药材特写，确保光线充足
+                    </div>
+                ` : ''}
+            `;
+            
+            // 显示药材信息
+            herbName.innerHTML = `<i class="fa fa-leaf text-primary mr-1"></i>${herbData[herb].name}`;
+            herbDescription.innerHTML = herbData[herb].description;
+            
+            // 显示结果区域
+            resultContainer.classList.remove('hidden');
+            herbInfo.classList.remove('hidden');
+        }
+        
+        // 显示错误信息
+        function showError(message) {
+            statusIndicator.innerHTML = `
+                <i class="fa fa-exclamation-triangle text-red-500 mr-1"></i>
+                <span class="text-red-500">${message}</span>
+            `;
+        }
+        
+        // 初始化事件监听
+        function initEventListeners() {
+            // 浏览文件按钮
+            document.getElementById('browse-btn').addEventListener('click', () => {
+                imageUpload.click();
+            });
+            
+            // 图片上传事件
+            imageUpload.addEventListener('change', handleImageUpload);
+            
+            // 点击上传区域
+            uploadArea.addEventListener('click', () => {
+                imageUpload.click();
+            });
+            
+            // 分析按钮
+            analyzeBtn.addEventListener('click', analyzeImage);
+            
+            // 拖放功能
+            uploadArea.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                uploadArea.classList.add('border-primary', 'bg-green-50');
+            });
+            
+            uploadArea.addEventListener('dragleave', () => {
+                uploadArea.classList.remove('border-primary', 'bg-green-50');
+            });
+            
+            uploadArea.addEventListener('drop', (e) => {
+                e.preventDefault();
+                uploadArea.classList.remove('border-primary', 'bg-green-50');
+                
+                if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+                    imageUpload.files = e.dataTransfer.files;
+                    handleImageUpload({ target: imageUpload });
+                }
+            });
+        }
         
         // 页面加载完成后初始化
         window.addEventListener('load', initApp);
+        
+        // 窗口大小变化时调整布局
+        window.addEventListener('resize', () => {
+            // 可以添加响应式调整逻辑
+        });
     </script>
 </body>
 </html>
