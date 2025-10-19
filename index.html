@@ -6,7 +6,6 @@
     <title>中药识别 - 枸杞与菊花</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
-    <!-- 优先加载TensorFlow.js库，确保加载成功 -->
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.14.0/dist/tf.min.js"></script>
 </head>
 <body class="bg-gray-50 min-h-screen">
@@ -24,14 +23,13 @@
     </header>
 
     <main class="container mx-auto px-4 pt-20 pb-24">
-        <!-- 库加载提示 -->
         <div class="bg-blue-50 border-l-4 border-blue-400 p-4 mb-6 text-sm">
             <div class="flex">
                 <div class="flex-shrink-0">
                     <i class="fa fa-info-circle text-blue-400"></i>
                 </div>
                 <div class="ml-3">
-                    <p class="text-blue-700">请确保网络连接正常，以便加载识别所需的库文件</p>
+                    <p class="text-blue-700">确保model.json和weights.bin文件匹配且未损坏</p>
                 </div>
             </div>
         </div>
@@ -88,20 +86,13 @@
     </footer>
 
     <script>
-        // 先检查TensorFlow.js是否加载成功
+        // 检查TensorFlow是否加载
         function checkTFLoaded() {
             if (typeof tf === 'undefined') {
                 statusIndicator.innerHTML = `
                     <i class="fa fa-exclamation-triangle text-red-500 mr-1"></i>
                     <span class="text-red-500">TensorFlow.js库加载失败，请检查网络</span>
                 `;
-                // 尝试重新加载库
-                setTimeout(() => {
-                    const script = document.createElement('script');
-                    script.src = 'https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.14.0/dist/tf.min.js';
-                    script.onload = initApp; // 加载成功后初始化应用
-                    document.head.appendChild(script);
-                }, 3000);
                 return false;
             }
             return true;
@@ -109,6 +100,7 @@
 
         // 模型路径
         const MODEL_PATH = 'model.json';
+        const WEIGHTS_PATH = 'weights.bin';
         
         // DOM元素
         const statusIndicator = document.getElementById('status-indicator');
@@ -138,11 +130,41 @@
         function initApp() {
             if (!checkTFLoaded()) return;
             
-            // 显示TensorFlow.js版本，确认加载成功
             statusIndicator.innerHTML = `<i class="fa fa-info-circle text-blue-500 mr-1"></i><span>已加载TensorFlow.js v${tf.version.tfjs}</span>`;
             
-            // 加载模型
-            loadModel();
+            // 先验证权重文件
+            verifyWeightsFile().then(valid => {
+                if (valid) {
+                    loadModel();
+                } else {
+                    statusIndicator.innerHTML = `
+                        <i class="fa fa-exclamation-triangle text-red-500 mr-1"></i>
+                        <span class="text-red-500">权重文件损坏，请重新导出模型</span>
+                    `;
+                }
+            });
+        }
+        
+        // 验证权重文件
+        async function verifyWeightsFile() {
+            try {
+                statusIndicator.innerHTML = '<i class="fa fa-circle-o-notch fa-spin mr-1"></i><span>验证权重文件...</span>';
+                
+                const response = await fetch(WEIGHTS_PATH);
+                if (!response.ok) throw new Error('权重文件不存在');
+                
+                const arrayBuffer = await response.arrayBuffer();
+                // Float32Array的字节长度必须是4的倍数
+                if (arrayBuffer.byteLength % 4 !== 0) {
+                    console.error(`权重文件字节长度错误: ${arrayBuffer.byteLength}，必须是4的倍数`);
+                    return false;
+                }
+                
+                return true;
+            } catch (error) {
+                console.error('权重文件验证失败:', error);
+                return false;
+            }
         }
         
         // 加载模型
@@ -150,15 +172,17 @@
             try {
                 statusIndicator.innerHTML = '<i class="fa fa-circle-o-notch fa-spin mr-1"></i><span>加载模型中...</span>';
                 
-                // 检查环境
                 if (window.location.protocol === 'file:') {
                     throw new Error('请使用本地服务器运行（http://）');
                 }
                 
-                // 加载模型
-                model = await tf.loadLayersModel(MODEL_PATH);
+                // 使用自定义加载器确保权重文件正确加载
+                const model = await tf.loadLayersModel(tf.io.browserHTTPRequest(MODEL_PATH, {
+                    onProgress: (progress) => {
+                        statusIndicator.innerHTML = `<i class="fa fa-circle-o-notch fa-spin mr-1"></i><span>加载中: ${Math.round(progress * 100)}%</span>`;
+                    }
+                }));
                 
-                // 验证模型
                 if (!model || typeof model.predict !== 'function') {
                     throw new Error('模型文件损坏或不完整');
                 }
@@ -166,18 +190,18 @@
                 statusIndicator.innerHTML = '<i class="fa fa-check text-green-500 mr-1"></i><span>模型加载完成</span>';
                 analyzeBtn.disabled = false;
                 analyzeBtn.innerHTML = '<i class="fa fa-search mr-1"></i> 开始识别';
-                return true;
+                return model;
             } catch (error) {
                 console.error('模型加载失败:', error);
                 statusIndicator.innerHTML = `
                     <i class="fa fa-exclamation-triangle text-red-500 mr-1"></i>
                     <span class="text-red-500 text-xs">${error.message}</span>
                 `;
-                return false;
+                return null;
             }
         }
         
-        // 处理图片上传
+        // 处理图片上传和分析（保持不变）
         function handleImageUpload(event) {
             const file = event.target.files[0];
             if (!file) return;
@@ -196,7 +220,6 @@
             reader.readAsDataURL(file);
         }
         
-        // 分析图片
         async function analyzeImage() {
             if (!model) {
                 alert('模型未加载成功，请先解决模型加载问题');
@@ -247,9 +270,9 @@
                         </div>
                     `;
                     
+                    herbInfo.classList.remove('hidden');
                     herbName.textContent = herb + ' 信息';
                     herbDescription.textContent = herbData[herb].description;
-                    herbInfo.classList.remove('hidden');
                     resultContainer.classList.remove('hidden');
                     statusIndicator.innerHTML = '<i class="fa fa-check text-green-500 mr-1"></i><span>识别完成</span>';
                     
@@ -286,7 +309,7 @@
             }
         });
         
-        // 页面加载完成后先检查TensorFlow.js是否加载
+        // 页面加载完成后初始化
         window.addEventListener('load', initApp);
     </script>
 </body>
