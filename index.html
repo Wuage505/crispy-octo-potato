@@ -65,8 +65,11 @@
                     <i class="fa fa-info-circle text-blue-400"></i>
                 </div>
                 <div class="ml-3">
-                    <p class="text-blue-700">
+                    <p class="text-blue-700 mb-2">
                         <strong>使用说明：</strong>支持JPG/PNG格式图片，建议上传清晰的枸杞或菊花特写照片
+                    </p>
+                    <p class="text-blue-600 text-xs">
+                        <i class="fa fa-mobile text-lg mr-1"></i>手机用户：1. 用Chrome/Safari浏览器；2. 苹果手机需开启浏览器“照片权限”；3. 图片超5MB可通过微信发送压缩
                     </p>
                 </div>
             </div>
@@ -159,12 +162,14 @@
         const herbDescription = document.getElementById('herb-description');
         const uploadArea = document.getElementById('upload-area');
         const fallbackMessage = document.getElementById('fallback-message');
+        const browseBtn = document.getElementById('browse-btn');
         
         // 全局变量
         let model;
         const labels = ['枸杞', '菊花'];
         let currentImage = null;
         const MODEL_PATH = 'model/model.json'; // GitHub Pages路径配置
+        const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent); // 检测是否为移动设备
         
         // 中药信息数据库
         const herbData = {
@@ -228,8 +233,13 @@
                     throw new Error('请使用HTTPS协议访问');
                 }
                 
-                // 加载模型
-                model = await tf.loadLayersModel(MODEL_PATH);
+                // 加载模型（手机端增加超时控制）
+                const loadPromise = tf.loadLayersModel(MODEL_PATH);
+                const timeoutPromise = new Promise((_, reject) => {
+                    setTimeout(() => reject(new Error('模型加载超时，请检查网络')), isMobile ? 20000 : 10000);
+                });
+                
+                model = await Promise.race([loadPromise, timeoutPromise]);
                 
                 // 验证模型
                 if (!model || typeof model.predict !== 'function') {
@@ -265,17 +275,24 @@
         function handleImageUpload(event) {
             const file = event.target.files[0];
             if (!file) return;
+
+            // 验证文件类型（适配手机常见格式）
+            const fileName = file.name.toLowerCase();
+            const isSupported = fileName.endsWith('.jpg') || fileName.endsWith('.jpeg') || fileName.endsWith('.png');
             
-            // 验证文件类型
-            const fileTypes = ['image/jpeg', 'image/png', 'image/jpg'];
-            if (!fileTypes.includes(file.type)) {
-                showError('请上传JPG或PNG格式的图片');
+            if (!isSupported) {
+                // 特别提示HEIC格式（苹果手机常见）
+                if (fileName.endsWith('.heic')) {
+                    showError('苹果HEIC格式不支持，请先转JPG（用微信发送可自动转换）');
+                } else {
+                    showError('仅支持JPG/PNG格式，请重新选择');
+                }
                 return;
             }
-            
-            // 验证文件大小（不超过5MB）
+
+            // 验证文件大小（手机端提示更友好）
             if (file.size > 5 * 1024 * 1024) {
-                showError('图片大小不能超过5MB，请压缩后上传');
+                showError('图片超5MB啦！手机拍照可先压缩（如微信发送再保存）');
                 return;
             }
             
@@ -316,67 +333,83 @@
                 
                 // 图片加载完成后处理
                 img.onload = async function() {
+                    // 手机端用更小的输入尺寸（降低计算量）
+                    const inputSize = isMobile ? 160 : 224;
+                    
                     // 创建画布并绘制图片
                     const canvas = document.createElement('canvas');
                     const ctx = canvas.getContext('2d');
-                    canvas.width = 224;
-                    canvas.height = 224;
+                    canvas.width = inputSize;
+                    canvas.height = inputSize;
                     
                     // 保持图片比例并居中绘制
                     const aspectRatio = img.width / img.height;
-                    let drawWidth = 224;
-                    let drawHeight = 224;
+                    let drawWidth = inputSize;
+                    let drawHeight = inputSize;
                     
                     if (aspectRatio > 1) {
-                        drawHeight = 224 / aspectRatio;
+                        drawHeight = inputSize / aspectRatio;
                     } else {
-                        drawWidth = 224 * aspectRatio;
+                        drawWidth = inputSize * aspectRatio;
                     }
                     
-                    const offsetX = (224 - drawWidth) / 2;
-                    const offsetY = (224 - drawHeight) / 2;
+                    const offsetX = (inputSize - drawWidth) / 2;
+                    const offsetY = (inputSize - drawHeight) / 2;
                     ctx.drawImage(img, offsetX, offsetY, drawWidth, drawHeight);
                     
-                    // 预处理图像数据
-                    let tensor = tf.browser.fromPixels(canvas)
-                        .resizeBilinear([224, 224]) // 调整尺寸
-                        .div(255.0) // 归一化到0-1
-                        .expandDims(0); // 增加批次维度
+                    // 预处理图像数据（优化内存使用）
+                    let tensor = tf.tidy(() => {
+                        return tf.browser.fromPixels(canvas)
+                            .resizeBilinear([224, 224]) // 适配模型输入尺寸
+                            .toFloat()
+                            .div(255.0) // 归一化
+                            .expandDims(0); // 增加批次维度
+                    });
                     
-                    // 模型预测
-                    const predictions = model.predict(tensor);
-                    const scores = await predictions.data();
-                    
-                    // 处理预测结果
-                    let maxScore = -1;
-                    let predictedClass = -1;
-                    
-                    for (let i = 0; i < scores.length; i++) {
-                        if (scores[i] > maxScore) {
-                            maxScore = scores[i];
-                            predictedClass = i;
-                        }
+                    // 手机端降低精度（减少计算量）
+                    if (isMobile) {
+                        tensor = tensor.cast('float16');
                     }
                     
-                    // 计算可信度
-                    const confidence = Math.round(maxScore * 100);
-                    const herb = labels[predictedClass];
+                    // 模型预测（增加超时控制）
+                    const predictPromise = model.predict(tensor).data();
+                    const timeoutPromise = new Promise((_, reject) => {
+                        setTimeout(() => reject(new Error('识别超时，请重试')), isMobile ? 15000 : 8000);
+                    });
                     
-                    // 显示结果
-                    displayResults(herb, confidence);
-                    
-                    // 释放Tensor内存
-                    tf.dispose(tensor);
-                    tf.dispose(predictions);
-                    tf.disposeVariables();
-                    
-                    // 更新状态
-                    statusIndicator.innerHTML = `
-                        <i class="fa fa-check text-green-500 mr-1"></i>
-                        <span>识别完成</span>
-                    `;
-                    analyzeBtn.disabled = false;
-                    analyzeBtn.innerHTML = '<i class="fa fa-search mr-1"></i> 重新识别';
+                    try {
+                        // 谁先完成就用谁的结果（防止无限等待）
+                        const scores = await Promise.race([predictPromise, timeoutPromise]);
+                        
+                        // 处理预测结果
+                        let maxScore = -1;
+                        let predictedClass = -1;
+                        for (let i = 0; i < scores.length; i++) {
+                            if (scores[i] > maxScore) {
+                                maxScore = scores[i];
+                                predictedClass = i;
+                            }
+                        }
+                        
+                        // 计算可信度
+                        const confidence = Math.round(maxScore * 100);
+                        const herb = labels[predictedClass];
+                        
+                        // 显示结果
+                        displayResults(herb, confidence);
+                        
+                    } catch (error) {
+                        console.error('识别超时:', error);
+                        showError(error.message || '识别时间过长，请换一张图片重试');
+                    } finally {
+                        // 强制释放内存
+                        tf.dispose(tensor);
+                        tf.disposeVariables();
+                        
+                        // 恢复按钮状态
+                        analyzeBtn.disabled = false;
+                        analyzeBtn.innerHTML = '<i class="fa fa-search mr-1"></i> 重新识别';
+                    }
                 };
                 
                 // 图片加载失败处理
@@ -432,6 +465,12 @@
             // 显示结果区域
             resultContainer.classList.remove('hidden');
             herbInfo.classList.remove('hidden');
+            
+            // 更新状态
+            statusIndicator.innerHTML = `
+                <i class="fa fa-check text-green-500 mr-1"></i>
+                <span>识别完成</span>
+            `;
         }
         
         // 显示错误信息
@@ -442,25 +481,32 @@
             `;
         }
         
-        // 初始化事件监听
+        // 初始化事件监听（优化手机触摸交互）
         function initEventListeners() {
-            // 浏览文件按钮
-            document.getElementById('browse-btn').addEventListener('click', () => {
+            // 1. 浏览按钮：支持点击和触摸
+            browseBtn.addEventListener('click', () => imageUpload.click());
+            browseBtn.addEventListener('touchstart', (e) => {
+                e.preventDefault(); // 阻止手机默认触摸行为
                 imageUpload.click();
             });
-            
-            // 图片上传事件
+
+            // 2. 上传区域：支持点击和触摸
+            function triggerUpload() {
+                imageUpload.click();
+            }
+            uploadArea.addEventListener('click', triggerUpload);
+            uploadArea.addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                triggerUpload();
+            });
+
+            // 3. 图片上传事件
             imageUpload.addEventListener('change', handleImageUpload);
             
-            // 点击上传区域
-            uploadArea.addEventListener('click', () => {
-                imageUpload.click();
-            });
-            
-            // 分析按钮
+            // 4. 分析按钮
             analyzeBtn.addEventListener('click', analyzeImage);
             
-            // 拖放功能
+            // 5. 拖放功能（桌面端）
             uploadArea.addEventListener('dragover', (e) => {
                 e.preventDefault();
                 uploadArea.classList.add('border-primary', 'bg-green-50');
@@ -486,8 +532,9 @@
         
         // 窗口大小变化时调整布局
         window.addEventListener('resize', () => {
-            // 可以添加响应式调整逻辑
+            // 响应式调整逻辑
         });
     </script>
 </body>
 </html>
+
